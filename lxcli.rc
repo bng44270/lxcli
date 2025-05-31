@@ -1,0 +1,438 @@
+##############################################
+#
+# lxcli.rc - Bash resoruce file to facilitate LXC auto-complete interface
+#
+# Usage:
+#
+#    1. Create iptcli alias:
+#
+#        alias fwcli="bash --rcfile /path/to/iptcli.rc"
+#
+#    2. Open CLI:
+#
+#        fwcli
+#
+#    3. Use the built in 'help' commands
+#
+##############################################
+
+BASEDIR="$HOME/.lxcli"
+[[ ! -d $BASEDIR ]] && /usr/bin/mkdir $BASEDIR
+cd $BASEDIR
+
+PATH=""
+HISTFILE="~/.lxcli_history"
+HISTTIMEFORMAT="%m/%d/%Y %H:%M:%S "
+
+TEMPLATEDIR="/usr/share/lxc/templates"
+TEMPLATECACHEDIR="/var/cache/lxc"
+
+PS1="lxc > "
+
+hash -p /usr/bin/ls dols
+hash -p /usr/bin/basename basename
+hash -p /usr/bin/cat cat
+hash -p /usr/bin/grep grep
+hash -p /usr/bin/sed sed
+hash -p /usr/bin/awk awk
+hash -p /usr/bin/bash bash
+hash -p /usr/bin/cp cp
+hash -p /usr/bin/tr tr
+hash -p /usr/bin/rm rm
+hash -p /usr/bin/lxc-attach lxc-attach
+hash -p /usr/bin/dpkg dpkg
+hash -p /usr/bin/head head
+hash -p /usr/bin/wc wc
+hash -p /usr/bin/cut cut
+hash -p /usr/bin/tail tail
+hash -p /usr/bin/chmod chmod
+
+alias help="_lxcli_help"
+
+clear() {
+    /usr/bin/clear
+}
+
+_lxcli_help() {
+    echo "Usage:"
+    echo "   container <start | stop | restart | attach | destroy | info> <container-name>"
+    echo "   container create name <container-name> template <template-name>"
+    echo "   container list"
+    echo ""
+    echo "   file stage <host-filespec>"
+    echo "   file copy file <filename> container <container-name> directory <guest-filespec>"
+    echo "   file delete <filename>"
+    echo "   file list"
+    echo ""
+    echo "   template create name <template-name> <package-name> [<package-name>...]"
+    echo "   template list"
+}
+
+_get_argcount() {
+    echo $#
+}
+
+_lxc() {
+    OP="$1"
+    shift
+    bash <<< "PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\" ; /usr/bin/lxc-$OP $@"
+}
+
+
+_str_begin_array() {
+	NEWAR=()
+	SRCH="$(cat -)"
+	for EL in $@; do
+		if [ -n "$(grep "^$SRCH" <<< "$EL")" ]; then
+			NEWAR+=($EL)
+		fi
+	done
+	echo ${NEWAR[@]}
+}
+
+_in_array() {
+	SRCH="$(cat -)"
+	if [ "$1" == "$SRCH" ]; then
+		return 0
+	else
+		shift
+		AR="$@"
+		if [ -z "$AR" ]; then
+			return 1
+		else
+			_in_array $AR <<< "$SRCH"
+		fi
+	fi
+}
+
+_eval_args() {
+    SRCH=($(cat -))
+    while [ -n "$1" ]; do
+        for O in ${SRCH[@]}; do
+            if [ "$O" == "$1" ]; then
+                shift
+                echo "OPT_$O=\"$1\""
+                shift
+            fi
+        done
+        shift
+    done
+}
+
+_container_complete() {
+	ACTIONS=(list info restart start stop attach destroy create)
+	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
+
+	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
+	if [ $? -eq 0 ]; then
+		case "${COMP_WORDS[1]}" in
+            create)
+                CREATEOPTS=()
+
+                _in_array ${COMP_WORDS[@]} <<< "name"
+                if [ $? -ne 0 ]; then
+                    CREATEOPTS+=(name)
+                fi
+
+                _in_array ${COMP_WORDS[@]} <<< "template"
+                if [ $? -ne 0 ]; then
+                    CREATEOPTS+=(template)
+                fi
+
+                _in_array name template <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    if [ "$LASTCMD" == "template" ]; then
+                        TEMPLOPT=($(dols $TEMPLATEDIR | sed 's/^lxc-//g' | tr '\n' ' '))
+
+                        COMPREPLY=($(_str_begin_array ${TEMPLOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                        return 0
+                    else
+                        return 0
+                    fi
+                else
+                    COMPREPLY=($(_str_begin_array ${CREATEOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                    return 0
+                fi
+                ;;
+            info|start|stop|attach|destroy)
+                CONTOPTS=($(_lxc ls))
+                _in_array ${CONTOPTS[@]} <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    return 0
+                else
+                    COMPREPLY=($(_str_begin_array ${CONTOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                    return 0
+                fi
+                ;;
+            *)
+                break
+                ;;
+        esac
+	else
+		COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+		return 0
+	fi
+
+	COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+	return 0
+}
+
+_validate_packages() {
+    BAD=()
+
+    while [ -n "$1" ]; do
+        bash <<< "PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\" ; /usr/bin/apt-cache show $1 > /dev/null"
+        if [ $? -ne 0 ]; then
+            BAD+=($1)
+        fi
+        shift
+    done
+
+    echo -n ${BAD[@]}
+}
+
+_template_complete() {
+	ACTIONS=(list create refresh)
+	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
+
+	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
+	if [ $? -eq 0 ]; then
+		case "${COMP_WORDS[1]}" in
+            create)
+                CREATEOPTS=()
+
+                _in_array ${COMP_WORDS[@]} <<< "name"
+                if [ $? -ne 0 ]; then
+                    COMPREPLY=($(_str_begin_array name <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                else
+                    return 0
+                fi
+                ;;
+            refresh)
+                ARGC="$(_get_argcount ${COMP_WORDS[@]})"
+
+                if [ $ARGC -lt 4 ]; then
+                    TEMPLOPT=($(dols $TEMPLATEDIR | sed 's/^lxc-//g' | tr '\n' ' '))
+
+                    COMPREPLY=($(_str_begin_array ${TEMPLOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+
+                    return 0
+                else
+                    return 0
+                fi
+                ;;
+            *)
+                return 0
+                break
+                ;;
+        esac
+	else
+		COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+		return 0
+	fi
+}
+
+template() {
+    if [ "$1" == "list" ]; then
+        dols $TEMPLATEDIR | sed 's/^lxc-//g'
+    elif [ "$1" == "create" ]; then
+        shift
+        shift
+        NAME="$1"
+        shift
+        PACKAGES="$@"
+
+        PACKAGE_STAT=$(_validate_packages $PACKAGES)
+
+        if [ -z "$PACKAGE_STAT" ]; then
+            echo -n "Createing template $NAME...."
+
+            sed 's/^\([ \t]\+packages=\\\)$/\1\npython3,\\/g;s/^\([ \t]\+cache="\$4\/\)debian\("\)/\1bobbox\2/g' $TEMPLATEDIR/lxc-debian > $TEMPLATEDIR/lxc-$NAME
+
+            chmod 755 $TEMPLATEDIR/lxc-$NAME
+
+            echo "done"
+        else
+            echo "Invalid packages"
+        fi
+    elif [ "$1" == "refresh" ]; then
+        TMPL="$2"
+
+        echo -n "Refreshing template $TMPL..."
+        rm -rf $TEMPLATECACHEDIR/$TMPL
+        echo "done"
+    else
+        echo "Invalid operation ($1)"
+    fi
+}
+
+_file_complete() {
+    ACTIONS=(stage copy delete list)
+	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
+
+	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
+	if [ $? -eq 0 ]; then
+		case "${COMP_WORDS[1]}" in
+            delete)
+                ARGC="$(_get_argcount ${COMP_WORDS[@]}  )"
+
+                if [ $ARGC -lt 4 ]; then
+                    FILEOPT=($(dols $BASEDIR | tr '\n' ' '))
+
+                    COMPREPLY=($(_str_begin_array ${FILEOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                fi
+
+                return 0
+                ;;
+            list)
+                return 0
+                ;;
+            stage)
+                echo "<filespec>"
+                return 0
+                ;;
+            copy)
+                COPYOPT=()
+
+                _in_array ${COMP_WORDS[@]} <<< "file"
+                if [ $? -ne 0 ]; then
+                    COPYOPT+=(file)
+                fi
+
+                _in_array ${COMP_WORDS[@]} <<< "container"
+                if [ $? -ne 0 ]; then
+                    COPYOPT+=(container)
+                fi
+
+                _in_array ${COMP_WORDS[@]} <<< "directory"
+                if [ $? -ne 0 ]; then
+                    COPYOPT+=(directory)
+                fi
+
+                _in_array file container directory <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    if [ "$LASTCMD" == "file" ]; then
+                        FILEOPT=($(dols $BASEDIR | tr '\n' ' '))
+
+                        COMPREPLY=($(_str_begin_array ${FILEOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                        return 0
+                    elif [ "$LASTCMD" == "container" ]; then
+                        CONTOPT=($(_lxc ls))
+
+                        COMPREPLY=($(_str_begin_array ${CONTOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                        return 0
+                    else
+                        COMPREPLY=""
+                        return 0
+                    fi
+                else
+                    COMPREPLY=($(_str_begin_array ${COPYOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                    return 0
+                fi
+                ;;
+            *)
+                break
+                ;;
+        esac
+	else
+		COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+		return 0
+	fi
+
+	COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+	return 0
+}
+
+file() {
+    if [ "$1" == "stage" ]; then
+        if [ -f $2 ]; then
+            echo -n "Staging file $2..."
+            cp $2 $BASEDIR
+            echo "done"
+        fi
+    elif [ "$1" == "copy" ]; then
+        eval $(_eval_args $@ <<< "file container directory")
+
+        echo -n "Copying $OPT_file to $OPT_container:$OPT_directory...."
+        cp $BASEDIR/$OPT_file /var/lib/lxc/$OPT_container/rootfs$OPT_directory
+        echo "done"
+    elif [ "$1" == "list" ]; then
+        dols $BASEDIR
+    elif [ "$1" == "delete" ]; then
+        rm $BASEDIR/$2
+    else
+        echo "Invalid operation ($1)"
+    fi
+}
+
+container() {
+    if [ "$1" == "create" ]; then
+        eval $(_eval_args $@ <<< "name template")
+
+        _lxc create -n $OPT_name -t $OPT_template
+
+        echo "PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\"" > /var/lib/lxc/$OPT_name/rootfs/root/.bashrc
+    elif [ "$1" == "list" ]; then
+        awk '{ printf("%-15s%-10s%-8s%-18s%-13s%-12s%-12s\n",$1,$2,$3,$4,$5,$6,$7); }' <<< "Name State PID IP IFace TXbytes"
+        _lxc ls -1 | while read container; do
+            _lxc info -n $container -H | awk 'BEGIN {
+                name = "";
+                state = "";
+                pid = "";
+                ipaddr = "";
+                hif = "";
+                txb = 0;
+                rxb = 0;
+            }
+            /^Name:/ { name = $2 }
+            /^State:/ { state = $2 }
+            /^PID:/ { pid = $2 }
+            /^IP:/ { ipaddr = $2 }
+            /^Link:/ { hif = $2 }
+            /^[ \t]+TX bytes:/ { txb = int($3) }
+            /^[ \t]+RX bytes:/ { rxb = int($3) }
+            END {
+                printf("%-15s%-10s%-8s%-18s%-13s%-12s%-12s\n",name,state,pid,ipaddr,hif,txb,rxb);
+            }'
+        done
+    elif [ "$1" == "restart" ]; then
+        container stop $2
+        container start $2
+    elif [ "$1" == "start" ]; then
+        if [ -n "$2" ]; then
+            echo -n "Starting container $2..."
+            _lxc start -n $2
+            echo "done"
+        fi
+    elif [ "$1" == "stop" ]; then
+        if [ -n "$2" ]; then
+            echo -n "Stopping container $2..."
+            _lxc stop -n $2
+            echo "done"
+        fi
+    elif [ "$1" == "attach" ]; then
+        if [ -n "$2" ]; then
+            echo "Attaching to container $2"
+            lxc-attach --rcfile <(echo "PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\"") -n $2
+        fi
+    elif [ "$1" == "destroy" ]; then
+        if [ -n "$2" ]; then
+            read -p "Destroy container $2 (y/N) " confirm
+            if [ -n "$(grep "[Yy]" <<< "$confirm")" ]; then
+                echo -n "Destroying container $2..."
+                _lxc destroy -n $2
+                echo "done"
+            fi
+        fi
+    elif [ "$1" == "info" ]; then
+        if [ -n "$2" ]; then
+            _lxc info -n $2
+        fi
+    else
+        echo "Invalid operation ($1)"
+    fi
+}
+
+complete -F _container_complete container
+complete -F _file_complete file
+complete -F _template_complete template
