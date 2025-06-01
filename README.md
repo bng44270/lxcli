@@ -1,4 +1,4 @@
-# fwcli
+# lxcli
 Auto-complete enabled CLI for managing LXC containers based on Bash  
   
 ### Usage:  
