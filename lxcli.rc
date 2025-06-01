@@ -6,11 +6,11 @@
 #
 #    1. Create iptcli alias:
 #
-#        alias fwcli="bash --rcfile /path/to/iptcli.rc"
+#        alias lxcli="bash --rcfile /path/to/iptcli.rc"
 #
 #    2. Open CLI:
 #
-#        fwcli
+#        lxcli
 #
 #    3. Use the built in 'help' commands
 #
