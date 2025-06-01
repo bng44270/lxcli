@@ -29,6 +29,8 @@ TEMPLATECACHEDIR="/var/cache/lxc"
 
 PS1="lxc > "
 
+PAGER="cat -"
+
 hash -p /usr/bin/ls dols
 hash -p /usr/bin/basename basename
 hash -p /usr/bin/cat cat
@@ -46,6 +48,8 @@ hash -p /usr/bin/wc wc
 hash -p /usr/bin/cut cut
 hash -p /usr/bin/tail tail
 hash -p /usr/bin/chmod chmod
+hash -p /usr/bin/more more
+hash -p /usr/bin/less less
 
 alias help="_lxcli_help"
 
@@ -57,15 +61,17 @@ _lxcli_help() {
     echo "Usage:"
     echo "   container <start | stop | restart | attach | destroy | info> <container-name>"
     echo "   container create name <container-name> template <template-name>"
-    echo "   container list"
+    echo "   container list [details]"
     echo ""
     echo "   file stage <host-filespec>"
-    echo "   file copy file <filename> container <container-name> directory <guest-filespec>"
-    echo "   file delete <filename>"
-    echo "   file list"
+    echo "   file copy path <staging-path> container <container-name> directory <guest-filespec>"
+    echo "   file delete <staging-path>"
+    echo "   file list [details]"
     echo ""
     echo "   template create name <template-name> <package-name> [<package-name>...]"
     echo "   template list"
+    echo ""
+    echo "   pager <more | less | none>"
 }
 
 _get_argcount() {
@@ -119,6 +125,19 @@ _eval_args() {
     done
 }
 
+_pager_complete() {
+    ACTIONS=(less more none)
+	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
+
+	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
+	if [ $? -eq 0 ]; then
+        return 0
+    else
+        COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+        return 0
+    fi
+}
+
 _container_complete() {
 	ACTIONS=(list info restart start stop attach destroy create)
 	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
@@ -156,6 +175,16 @@ _container_complete() {
                 ;;
             info|start|stop|attach|destroy)
                 CONTOPTS=($(_lxc ls))
+                _in_array ${CONTOPTS[@]} <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    return 0
+                else
+                    COMPREPLY=($(_str_begin_array ${CONTOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                    return 0
+                fi
+                ;;
+            list)
+                CONTOPTS=(details)
                 _in_array ${CONTOPTS[@]} <<< "$LASTCMD"
                 if [ $? -eq 0 ]; then
                     return 0
@@ -208,6 +237,16 @@ _template_complete() {
                     return 0
                 fi
                 ;;
+            list)
+                CONTOPTS=(details)
+                _in_array ${CONTOPTS[@]} <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    return 0
+                else
+                    COMPREPLY=($(_str_begin_array ${CONTOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                    return 0
+                fi
+                ;;
             refresh)
                 ARGC="$(_get_argcount ${COMP_WORDS[@]})"
 
@@ -232,9 +271,102 @@ _template_complete() {
 	fi
 }
 
+_file_complete() {
+    ACTIONS=(stage copy delete list)
+	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
+
+	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
+	if [ $? -eq 0 ]; then
+		case "${COMP_WORDS[1]}" in
+            delete)
+                ARGC="$(_get_argcount ${COMP_WORDS[@]}  )"
+
+                if [ $ARGC -lt 4 ]; then
+                    FILEOPT=($(dols $BASEDIR | tr '\n' ' '))
+
+                    COMPREPLY=($(_str_begin_array ${FILEOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                fi
+
+                return 0
+                ;;
+            stage)
+                return 0
+                ;;
+            copy)
+                COPYOPT=()
+
+                _in_array ${COMP_WORDS[@]} <<< "path"
+                if [ $? -ne 0 ]; then
+                    COPYOPT+=(path)
+                fi
+
+                _in_array ${COMP_WORDS[@]} <<< "container"
+                if [ $? -ne 0 ]; then
+                    COPYOPT+=(container)
+                fi
+
+                _in_array ${COMP_WORDS[@]} <<< "directory"
+                if [ $? -ne 0 ]; then
+                    COPYOPT+=(directory)
+                fi
+
+                _in_array path container directory <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    if [ "$LASTCMD" == "path" ]; then
+                        FILEOPT=($(dols $BASEDIR | tr '\n' ' '))
+
+                        COMPREPLY=($(_str_begin_array ${FILEOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                        return 0
+                    elif [ "$LASTCMD" == "container" ]; then
+                        CONTOPT=($(_lxc ls))
+
+                        COMPREPLY=($(_str_begin_array ${CONTOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                        return 0
+                    else
+                        COMPREPLY=""
+                        return 0
+                    fi
+                else
+                    COMPREPLY=($(_str_begin_array ${COPYOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                    return 0
+                fi
+                ;;
+            *)
+                ;;
+        esac
+	else
+		COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+		return 0
+	fi
+}
+
+pager() {
+    if [ -n "$1" ]; then
+        if [ "$1" == "none" ]; then
+            export PAGER="cat -"
+        elif [ "$1" == "more" ] || [ "$1" == "less" ]; then
+            export PAGER="$1"
+        else
+            echo "Invalid pager ($1)"
+        fi
+    else
+        echo "Must specify pager"
+    fi
+}
+
 template() {
     if [ "$1" == "list" ]; then
-        dols $TEMPLATEDIR | sed 's/^lxc-//g'
+        if [ "$2" == "details" ]; then
+            (
+                awk '{ printf("%-15s%-10s\n",$1,$2); }' <<< "Name Cached"
+                dols $TEMPLATEDIR | sed 's/^lxc-//g' | while read TMPL; do
+                    CACHED="$([[ -d $TEMPLATECACHEDIR/$TMPL ]] && echo "Yes" || echo "No")"
+                    awk '{ printf("%-15s%-10s\n",$1,$2); }' <<< "$TMPL $CACHED"
+                done
+            ) | $PAGER
+        else
+            dols $TEMPLATEDIR | sed 's/^lxc-//g' | $PAGER
+        fi
     elif [ "$1" == "create" ]; then
         shift
         shift
@@ -266,95 +398,24 @@ template() {
     fi
 }
 
-_file_complete() {
-    ACTIONS=(stage copy delete list)
-	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
-
-	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
-	if [ $? -eq 0 ]; then
-		case "${COMP_WORDS[1]}" in
-            delete)
-                ARGC="$(_get_argcount ${COMP_WORDS[@]}  )"
-
-                if [ $ARGC -lt 4 ]; then
-                    FILEOPT=($(dols $BASEDIR | tr '\n' ' '))
-
-                    COMPREPLY=($(_str_begin_array ${FILEOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
-                fi
-
-                return 0
-                ;;
-            list)
-                return 0
-                ;;
-            stage)
-                echo "<filespec>"
-                return 0
-                ;;
-            copy)
-                COPYOPT=()
-
-                _in_array ${COMP_WORDS[@]} <<< "file"
-                if [ $? -ne 0 ]; then
-                    COPYOPT+=(file)
-                fi
-
-                _in_array ${COMP_WORDS[@]} <<< "container"
-                if [ $? -ne 0 ]; then
-                    COPYOPT+=(container)
-                fi
-
-                _in_array ${COMP_WORDS[@]} <<< "directory"
-                if [ $? -ne 0 ]; then
-                    COPYOPT+=(directory)
-                fi
-
-                _in_array file container directory <<< "$LASTCMD"
-                if [ $? -eq 0 ]; then
-                    if [ "$LASTCMD" == "file" ]; then
-                        FILEOPT=($(dols $BASEDIR | tr '\n' ' '))
-
-                        COMPREPLY=($(_str_begin_array ${FILEOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
-                        return 0
-                    elif [ "$LASTCMD" == "container" ]; then
-                        CONTOPT=($(_lxc ls))
-
-                        COMPREPLY=($(_str_begin_array ${CONTOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
-                        return 0
-                    else
-                        COMPREPLY=""
-                        return 0
-                    fi
-                else
-                    COMPREPLY=($(_str_begin_array ${COPYOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
-                    return 0
-                fi
-                ;;
-            *)
-                break
-                ;;
-        esac
-	else
-		COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
-		return 0
-	fi
-
-	COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
-	return 0
-}
-
 file() {
     if [ "$1" == "stage" ]; then
         if [ -f $2 ]; then
             echo -n "Staging file $2..."
             cp $2 $BASEDIR
             echo "done"
+        elif [ -d $2 ]; then
+            echo -n "Staging folder $2..."
+            cp -R $2 $BASEDIR
+            echo "done"
+        else
+            echo "Please profile file/path"
         fi
     elif [ "$1" == "copy" ]; then
-        eval $(_eval_args $@ <<< "file container directory")
+        eval $(_eval_args $@ <<< "path container directory")
 
         echo -n "Copying $OPT_file to $OPT_container:$OPT_directory...."
-        cp $BASEDIR/$OPT_file /var/lib/lxc/$OPT_container/rootfs$OPT_directory
+        cp -R $BASEDIR/$OPT_path /var/lib/lxc/$OPT_container/rootfs$OPT_directory
         echo "done"
     elif [ "$1" == "list" ]; then
         dols $BASEDIR
@@ -373,28 +434,34 @@ container() {
 
         echo "PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\"" > /var/lib/lxc/$OPT_name/rootfs/root/.bashrc
     elif [ "$1" == "list" ]; then
-        awk '{ printf("%-15s%-10s%-8s%-18s%-13s%-12s%-12s\n",$1,$2,$3,$4,$5,$6,$7); }' <<< "Name State PID IP IFace TXbytes"
-        _lxc ls -1 | while read container; do
-            _lxc info -n $container -H | awk 'BEGIN {
-                name = "";
-                state = "";
-                pid = "";
-                ipaddr = "";
-                hif = "";
-                txb = 0;
-                rxb = 0;
-            }
-            /^Name:/ { name = $2 }
-            /^State:/ { state = $2 }
-            /^PID:/ { pid = $2 }
-            /^IP:/ { ipaddr = $2 }
-            /^Link:/ { hif = $2 }
-            /^[ \t]+TX bytes:/ { txb = int($3) }
-            /^[ \t]+RX bytes:/ { rxb = int($3) }
-            END {
-                printf("%-15s%-10s%-8s%-18s%-13s%-12s%-12s\n",name,state,pid,ipaddr,hif,txb,rxb);
-            }'
-        done
+        if [ "$2" == "details" ]; then
+            (
+                awk '{ printf("%-15s%-10s%-8s%-18s%-13s%-12s%-12s\n",$1,$2,$3,$4,$5,$6,$7); }' <<< "Name State PID IP IFace TXbytes" ;
+                _lxc ls -1 | while read container; do
+                    _lxc info -n $container -H | awk 'BEGIN {
+                        name = "";
+                        state = "";
+                        pid = "";
+                        ipaddr = "";
+                        hif = "";
+                        txb = 0;
+                        rxb = 0;
+                    }
+                    /^Name:/ { name = $2 }
+                    /^State:/ { state = $2 }
+                    /^PID:/ { pid = $2 }
+                    /^IP:/ { ipaddr = $2 }
+                    /^Link:/ { hif = $2 }
+                    /^[ \t]+TX bytes:/ { txb = int($3) }
+                    /^[ \t]+RX bytes:/ { rxb = int($3) }
+                    END {
+                        printf("%-15s%-10s%-8s%-18s%-13s%-12s%-12s\n",name,state,pid,ipaddr,hif,txb,rxb);
+                    }'
+                done
+            ) | $PAGER
+        else
+            _lxc ls -1
+        fi
     elif [ "$1" == "restart" ]; then
         container stop $2
         container start $2
@@ -436,3 +503,4 @@ container() {
 complete -F _container_complete container
 complete -F _file_complete file
 complete -F _template_complete template
+complete -F _pager_complete pager

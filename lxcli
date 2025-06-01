@@ -6,7 +6,7 @@ RCFILE="$BASEDIR/share/lxcli.rc"
 ISROOT="$(whoami | grep '^root$')"
 
 if [ -n "$ISROOT" ]; then
-	bash --rcfile $RCFILE
+	bash -i --rcfile $RCFILE
 else
 	echo "Root access is required"
 fi
