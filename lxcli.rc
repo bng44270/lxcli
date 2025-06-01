@@ -350,12 +350,17 @@ pager() {
             echo "Invalid pager ($1)"
         fi
     else
-        echo "Must specify pager"
+        echo "Usage:"
+        echo "   pager <more | less | none>"
     fi
 }
 
 template() {
-    if [ "$1" == "list" ]; then
+    if [ -z "$1" ]; then
+        echo "Usage:"
+        echo "   template create name <template-name> <package-name> [<package-name>...]"
+        echo "   template list"
+    elif [ "$1" == "list" ]; then
         if [ "$2" == "details" ]; then
             (
                 awk '{ printf("%-15s%-10s\n",$1,$2); }' <<< "Name Cached"
@@ -399,7 +404,13 @@ template() {
 }
 
 file() {
-    if [ "$1" == "stage" ]; then
+    if [ -z "$1" ]; then
+        echo "Usage:"
+        echo "   file stage <host-filespec>"
+        echo "   file copy path <staging-path> container <container-name> directory <guest-filespec>"
+        echo "   file delete <staging-path>"
+        echo "   file list [details]"
+    elif [ "$1" == "stage" ]; then
         if [ -f $2 ]; then
             echo -n "Staging file $2..."
             cp $2 $BASEDIR
@@ -427,7 +438,12 @@ file() {
 }
 
 container() {
-    if [ "$1" == "create" ]; then
+    if [ -z "$1" ]; then
+        echo "Usage:"
+        echo "   container <start | stop | restart | attach | destroy | info> <container-name>"
+        echo "   container create name <container-name> template <template-name>"
+        echo "   container list [details]"
+    elif [ "$1" == "create" ]; then
         eval $(_eval_args $@ <<< "name template")
 
         _lxc create -n $OPT_name -t $OPT_template
