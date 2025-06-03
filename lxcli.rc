@@ -31,17 +31,19 @@ PS1="lxc > "
 
 PAGER="cat -"
 
+EDITOR="vi"
+
+SCREENID="0"
+
 hash -p /usr/bin/ls dols
 hash -p /usr/bin/basename basename
 hash -p /usr/bin/cat cat
-hash -p /usr/bin/grep grep
 hash -p /usr/bin/sed sed
 hash -p /usr/bin/awk awk
 hash -p /usr/bin/bash bash
 hash -p /usr/bin/cp cp
 hash -p /usr/bin/tr tr
 hash -p /usr/bin/rm rm
-hash -p /usr/bin/lxc-attach lxc-attach
 hash -p /usr/bin/dpkg dpkg
 hash -p /usr/bin/head head
 hash -p /usr/bin/wc wc
@@ -50,17 +52,72 @@ hash -p /usr/bin/tail tail
 hash -p /usr/bin/chmod chmod
 hash -p /usr/bin/more more
 hash -p /usr/bin/less less
+hash -p /usr/bin/screen screen
+
+LXCATTACH_BIN="/usr/bin/lxc-attach"
 
 alias help="_lxcli_help"
 
+_clidebug_complete() {
+	OPTIONS=(on off)
+
+	_in_array ${OPTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD-1]}"
+	if [ $? -eq 0 ]; then
+		return 0
+	else
+		COMPREPLY=($(_str_begin_array ${OPTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+		return 0
+	fi
+
+}
+
+clidebug() {
+	if [ "$1" == "on" ]; then
+		set -x
+	elif [ "$1" == "off" ]; then
+		set +x
+	else
+		echo "usage: clidebug <on | off>"
+	fi
+}
+
 clear() {
     /usr/bin/clear
+}
+
+grep() {
+	if [ -n "$1" ]; then
+		/usr/bin/grep "$@"
+	else
+		echo "usage: grep <expression>"
+	fi
+}
+
+count() {
+	if [ -n "$1" ]; then
+		grep "$@" | wc -l
+	else
+		echo "usage: count <expression>"
+	fi
+}
+
+column() {
+	if [ -n "$1" ]; then
+		awk '{ print $'"$1"' }'
+	else
+		echo "usage: column <number>"
+	fi
+}
+
+_get_cgroups() {
+    ls /sys/fs/cgroup/lxc.monitor.$1
 }
 
 _lxcli_help() {
     echo "Usage:"
     echo "   container <start | stop | restart | attach | destroy | info> <container-name>"
     echo "   container create name <container-name> template <template-name>"
+    echo "   container cgroup <container-name> <state-object> [<new-value>]"
     echo "   container list [details]"
     echo ""
     echo "   file stage <host-filespec>"
@@ -72,6 +129,9 @@ _lxcli_help() {
     echo "   template list"
     echo ""
     echo "   pager <more | less | none>"
+    echo "   grep <expression>"
+	echo "   column <number>"
+	echo "   count <expression>"
 }
 
 _get_argcount() {
@@ -125,6 +185,19 @@ _eval_args() {
     done
 }
 
+_editor_complete() {
+    ACTIONS=(vi vim nano emacs)
+	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
+
+	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
+	if [ $? -eq 0 ]; then
+        return 0
+    else
+        COMPREPLY=($(_str_begin_array ${ACTIONS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+        return 0
+    fi
+}
+
 _pager_complete() {
     ACTIONS=(less more none)
 	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
@@ -139,7 +212,7 @@ _pager_complete() {
 }
 
 _container_complete() {
-	ACTIONS=(list info restart start stop attach destroy create)
+	ACTIONS=(list info restart start stop attach destroy create cgroup)
 	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
 
 	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
@@ -173,11 +246,19 @@ _container_complete() {
                     return 0
                 fi
                 ;;
-            info|start|stop|attach|destroy)
+            restart|info|start|stop|attach|destroy|cgroup)
                 CONTOPTS=($(_lxc ls))
                 _in_array ${CONTOPTS[@]} <<< "$LASTCMD"
                 if [ $? -eq 0 ]; then
-                    return 0
+                    if [ "${COMP_WORDS[1]}" == "cgroup" ]; then
+                        CONTAINER="${COMP_WORDS[2]}"
+                        CGOPTS="$(dols /sys/fs/cgroup/lxc.monitor.$CONTAINER)"
+
+                        COMPREPLY=($(_str_begin_array ${CGOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                        return 0
+                    else
+                        return 0
+                    fi
                 else
                     COMPREPLY=($(_str_begin_array ${CONTOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
                     return 0
@@ -221,7 +302,7 @@ _validate_packages() {
 }
 
 _template_complete() {
-	ACTIONS=(list create refresh)
+	ACTIONS=(list create refresh copy edit)
 	LASTCMD="${COMP_WORDS[$COMP_CWORD-1]}"
 
 	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
@@ -234,6 +315,45 @@ _template_complete() {
                 if [ $? -ne 0 ]; then
                     COMPREPLY=($(_str_begin_array name <<< "${COMP_WORDS[$COMP_CWORD]}"))
                 else
+                    return 0
+                fi
+                ;;
+            copy)
+                COPYOPTS=()
+
+                _in_array ${COMP_WORDS[@]} <<< "name"
+                if [ $? -ne 0 ]; then
+                    COPYOPTS+=(name)
+                fi
+
+                _in_array ${COMP_WORDS[@]} <<< "parent"
+                if [ $? -ne 0 ]; then
+                    COPYOPTS+=(parent)
+                fi
+
+                _in_array name parent <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    if [ "$LASTCMD" == "parent" ]; then
+                        TEMPLOPT=($(dols $TEMPLATEDIR | sed 's/^lxc-//g' | tr '\n' ' '))
+
+                        COMPREPLY=($(_str_begin_array ${TEMPLOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                        return 0
+                    else
+                        return 0
+                    fi
+                else
+                    COMPREPLY=($(_str_begin_array ${COPYOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                    return 0
+                fi
+                ;;
+            edit)
+                TEMPLOPT=($(dols $TEMPLATEDIR | sed 's/^lxc-//g' | tr '\n' ' '))
+
+                _in_array ${TEMPLOPT[@]} <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    return 0
+                else
+                    COMPREPLY=($(_str_begin_array ${TEMPLOPT[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
                     return 0
                 fi
                 ;;
@@ -340,6 +460,19 @@ _file_complete() {
 	fi
 }
 
+editor() {
+    if [ -n "$1" ]; then
+        if [ -n "$(grep "$1" <<< "vi vim nano emacs")" ]; then
+            export EDITOR="/usr/bin/$1"
+        else
+            echo "Invalid editor ($1)"
+        fi
+    else
+        echo "Usage:"
+        echo "   editor <vi | vim | nano | emacs>"
+    fi
+}
+
 pager() {
     if [ -n "$1" ]; then
         if [ "$1" == "none" ]; then
@@ -374,23 +507,47 @@ template() {
         fi
     elif [ "$1" == "create" ]; then
         shift
+        P1="$1"
         shift
         NAME="$1"
-        shift
-        PACKAGES="$@"
 
-        PACKAGE_STAT=$(_validate_packages $PACKAGES)
+        if [ "$P1" == "name" ] && [ -n "$NAME" ]; then
+            echo -n "Creating template $NAME...."
 
-        if [ -z "$PACKAGE_STAT" ]; then
-            echo -n "Createing template $NAME...."
-
-            sed 's/^\([ \t]\+packages=\\\)$/\1\npython3,\\/g;s/^\([ \t]\+cache="\$4\/\)debian\("\)/\1bobbox\2/g' $TEMPLATEDIR/lxc-debian > $TEMPLATEDIR/lxc-$NAME
+            echo "" > $TEMPLATEDIR/lxc-$NAME
 
             chmod 755 $TEMPLATEDIR/lxc-$NAME
 
             echo "done"
         else
-            echo "Invalid packages"
+            echo "Specify name"
+        fi
+    elif [ "$1" == "copy" ]; then
+        shift
+        P1="$1"
+        shift
+        NAME="$1"
+        shift
+        P2="$1"
+        shift
+        PARTMPL="$1"
+
+        if [ "$P1" == "name" ] && [ "$P2" == "parent" ] && [ -n "$NAME" ] && [ -n "$PARTMPL" ]; then
+            echo -n "Copying template $PARTMPL -> $NAME...."
+
+            cp $TEMPLATEDIR/lxc-$PARTMPL $TEMPLATEDIR/lxc-$NAME
+
+            chmod 755 $TEMPLATEDIR/lxc-$NAME
+
+            echo "done"
+        else
+            echo "Specify template name and parent"
+        fi
+    elif [ "$1" == "edit" ]; then
+        if [ -n "$2" ]; then
+            $EDITOR $TEMPLATEDIR/lxc-$2
+        else
+            echo "Specify template"
         fi
     elif [ "$1" == "refresh" ]; then
         TMPL="$2"
@@ -442,6 +599,7 @@ container() {
         echo "Usage:"
         echo "   container <start | stop | restart | attach | destroy | info> <container-name>"
         echo "   container create name <container-name> template <template-name>"
+        echo "   container cgroup <container-name> <state-object> [<new-value>]"
         echo "   container list [details]"
     elif [ "$1" == "create" ]; then
         eval $(_eval_args $@ <<< "name template")
@@ -486,17 +644,34 @@ container() {
             echo -n "Starting container $2..."
             _lxc start -n $2
             echo "done"
+        else
+            echo "Specify container"
         fi
     elif [ "$1" == "stop" ]; then
         if [ -n "$2" ]; then
             echo -n "Stopping container $2..."
             _lxc stop -n $2
             echo "done"
+        else
+            echo "Specify container"
+        fi
+    elif [ "$1" == "cgroup" ]; then
+        if [ -n "$2" ] && [ -n "$3" ]; then
+            if [ -n "$4" ]; then
+                _lxc cgroup -n $2 $3 $4
+            else
+                _lxc cgroup -n $2 $3 | $PAGER
+            fi
+        else
+            echo "Specify container"
         fi
     elif [ "$1" == "attach" ]; then
         if [ -n "$2" ]; then
+            export SCREENID="$[ $SCREENID + 1 ]"
             echo "Attaching to container $2"
-            lxc-attach --rcfile <(echo "PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\"") -n $2
+            screen -t $2 $SCREENID $LXCATTACH_BIN -n $2
+        else
+            echo "Specify container"
         fi
     elif [ "$1" == "destroy" ]; then
         if [ -n "$2" ]; then
@@ -506,10 +681,14 @@ container() {
                 _lxc destroy -n $2
                 echo "done"
             fi
+        else
+            echo "Specify container"
         fi
     elif [ "$1" == "info" ]; then
         if [ -n "$2" ]; then
             _lxc info -n $2
+        else
+            echo "Specify container"
         fi
     else
         echo "Invalid operation ($1)"
@@ -520,3 +699,4 @@ complete -F _container_complete container
 complete -F _file_complete file
 complete -F _template_complete template
 complete -F _pager_complete pager
+complete -F _clidebug_complete clidebug
