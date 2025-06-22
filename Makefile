@@ -27,10 +27,9 @@ config: tmp/settings
 	$(foreach thisbin,$(@_BINREQ),$(call checkfile,$(thisbin)))
 
 install: tmp/settings
-	@sudo -v
-	sudo cp lxcli $(call getsetting,tmp/settings,BASEDIR)/bin
-	sudo cp lxcli.rc $(call getsetting,tmp/settings,BASEDIR)/share
-	sudo chmod +x $(call getsetting,tmp/settings,BASEDIR)/bin/lxcli
+	cp lxcli $(call getsetting,tmp/settings,BASEDIR)/bin
+	cp lxcli.rc $(call getsetting,tmp/settings,BASEDIR)/share
+	chmod +x $(call getsetting,tmp/settings,BASEDIR)/bin/lxcli
 
 clean:
 	rm -rf tmp

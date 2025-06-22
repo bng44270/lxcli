@@ -31,7 +31,7 @@ PS1="lxc > "
 
 PAGER="cat -"
 
-EDITOR="vi"
+EDITOR="/usr/bin/vi"
 
 SCREENID="0"
 
@@ -700,3 +700,4 @@ complete -F _file_complete file
 complete -F _template_complete template
 complete -F _pager_complete pager
 complete -F _clidebug_complete clidebug
+complete -F _editor_complete editor
