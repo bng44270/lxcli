@@ -130,8 +130,9 @@ _lxcli_help() {
     echo ""
     echo "   pager <more | less | none>"
     echo "   grep <expression>"
-	echo "   column <number>"
-	echo "   count <expression>"
+    echo "   column <number>"
+    echo "   count <expression>"
+    echo "   shell"
 }
 
 _get_argcount() {
@@ -218,6 +219,34 @@ _container_complete() {
 	_in_array ${ACTIONS[@]} <<< "${COMP_WORDS[1]}"
 	if [ $? -eq 0 ]; then
 		case "${COMP_WORDS[1]}" in
+            copy)
+                COPYOPTS=()
+
+                _in_array ${COMP_WORDS[@]} <<< "name"
+                if [ $? -ne 0 ]; then
+                    COPYOPTS+=(name)
+                fi
+
+                _in_array ${COMP_WORDS[@]} <<< "from"
+                if [ $? -ne 0 ]; then
+                    COPYOPTS+=(from)
+                fi
+
+                _in_array name from <<< "$LASTCMD"
+                if [ $? -eq 0 ]; then
+                    if [ "$LASTCMD" == "from" ]; then
+                        FROMOPTS=($(_lxc ls))
+
+                        COMPREPLY=($(_str_begin_array ${FROMOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                        return 0
+                    else
+                        return 0
+                    fi
+                else
+                    COMPREPLY=($(_str_begin_array ${COPYOPTS[@]} <<< "${COMP_WORDS[$COMP_CWORD]}"))
+                    return 0
+                fi
+                ;;
             create)
                 CREATEOPTS=()
 
@@ -607,6 +636,10 @@ container() {
         _lxc create -n $OPT_name -t $OPT_template
 
         echo "PATH=\"/usr/bin:/bin:/usr/sbin:/sbin\"" > /var/lib/lxc/$OPT_name/rootfs/root/.bashrc
+    elif [ "$1" == "copy" ]; then
+        eval $(_eval_args $@ <<< "name from")
+        
+        _lxc copy -n $OPT_from -N $OPT_name
     elif [ "$1" == "list" ]; then
         if [ "$2" == "details" ]; then
             (
