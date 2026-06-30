@@ -118,6 +118,7 @@ _lxcli_help() {
     echo "   container <start | stop | restart | attach | destroy | info> <container-name>"
     echo "   container create name <container-name> template <template-name>"
     echo "   container cgroup <container-name> <state-object> [<new-value>]"
+    echo "   container copy name <new-container-name> from <old-container-name>" 
     echo "   container list [details]"
     echo ""
     echo "   file stage <host-filespec>"
