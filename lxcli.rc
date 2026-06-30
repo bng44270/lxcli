@@ -2,18 +2,6 @@
 #
 # lxcli.rc - Bash resoruce file to facilitate LXC auto-complete interface
 #
-# Usage:
-#
-#    1. Create iptcli alias:
-#
-#        alias fwcli="bash --rcfile /path/to/iptcli.rc"
-#
-#    2. Open CLI:
-#
-#        fwcli
-#
-#    3. Use the built in 'help' commands
-#
 ##############################################
 
 BASEDIR="$HOME/.lxcli"
