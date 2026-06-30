@@ -132,7 +132,6 @@ _lxcli_help() {
     echo "   grep <expression>"
     echo "   column <number>"
     echo "   count <expression>"
-    echo "   shell"
 }
 
 _get_argcount() {
@@ -629,6 +628,7 @@ container() {
         echo "   container <start | stop | restart | attach | destroy | info> <container-name>"
         echo "   container create name <container-name> template <template-name>"
         echo "   container cgroup <container-name> <state-object> [<new-value>]"
+        echo "   container copy name <new-container-name> from <old-container-name>"
         echo "   container list [details]"
     elif [ "$1" == "create" ]; then
         eval $(_eval_args $@ <<< "name template")
